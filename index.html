@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BirdStation Network — Live Map</title>
+  <meta name="description" content="Community map of BirdStation bird detection stations worldwide">
+  <meta property="og:title" content="BirdStation Network">
+  <meta property="og:description" content="Community map of bird detection stations powered by BirdNET">
+  <meta property="og:type" content="website">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐦</text></svg>">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    :root {
+      --bg: #0f1923; --bg-card: #1a2332; --text: #e0e8ef; --text-muted: #7a8a9e;
+      --accent: #34d399; --border: #2a3a4a; --radius: 8px;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); }
+
+    /* Header */
+    .header {
+      display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+      padding: .8rem 1.5rem; background: var(--bg-card); border-bottom: 1px solid var(--border);
+    }
+    .header-brand { display: flex; align-items: center; gap: .6rem; }
+    .header-logo { font-size: 1.5rem; }
+    .header-title { font-size: 1.1rem; font-weight: 700; }
+    .header-sub { font-size: .75rem; color: var(--text-muted); }
+    .header-stats { display: flex; gap: 1.5rem; font-size: .82rem; }
+    .stat-value { font-weight: 700; color: var(--accent); font-size: 1.1rem; }
+    .stat-label { color: var(--text-muted); font-size: .7rem; }
+
+    /* Map */
+    #map { height: calc(100vh - 60px); width: 100%; }
+    .leaflet-container { background: #0a1220; }
+
+    /* Custom marker */
+    .station-marker {
+      width: 28px; height: 28px; border-radius: 50%; background: var(--accent);
+      border: 3px solid #fff; box-shadow: 0 2px 8px rgba(0,0,0,.4);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; color: #0f1923; font-weight: 700;
+      transition: transform .2s;
+    }
+    .station-marker:hover { transform: scale(1.3); }
+    .station-marker.offline { background: #6b7280; border-color: #9ca3af; }
+
+    /* Popup */
+    .leaflet-popup-content-wrapper {
+      background: var(--bg-card) !important; color: var(--text) !important;
+      border-radius: var(--radius) !important; border: 1px solid var(--border) !important;
+      box-shadow: 0 8px 24px rgba(0,0,0,.4) !important;
+    }
+    .leaflet-popup-tip { background: var(--bg-card) !important; border: 1px solid var(--border) !important; }
+    .popup-name { font-size: 1rem; font-weight: 700; margin-bottom: .3rem; }
+    .popup-country { font-size: .78rem; color: var(--text-muted); margin-bottom: .6rem; }
+    .popup-stats { display: grid; grid-template-columns: 1fr 1fr; gap: .4rem .8rem; font-size: .78rem; margin-bottom: .6rem; }
+    .popup-stat-val { font-weight: 600; color: var(--accent); }
+    .popup-hw { font-size: .72rem; color: var(--text-muted); border-top: 1px solid var(--border); padding-top: .5rem; }
+    .popup-species { margin-top: .5rem; border-top: 1px solid var(--border); padding-top: .5rem; }
+    .popup-species-title { font-size: .72rem; color: var(--text-muted); margin-bottom: .3rem; }
+    .popup-sp-row { display: flex; justify-content: space-between; font-size: .75rem; padding: .1rem 0; }
+    .popup-sp-name { font-style: italic; }
+    .popup-sp-count { color: var(--accent); font-weight: 600; }
+    .popup-seen { font-size: .7rem; color: var(--text-muted); margin-top: .4rem; }
+    .popup-online { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: .3rem; }
+    .popup-online.on { background: var(--accent); }
+    .popup-online.off { background: #6b7280; }
+
+    /* Loading overlay */
+    .loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); z-index: 1000;
+      background: var(--bg-card); padding: 1.5rem 2rem; border-radius: var(--radius); border: 1px solid var(--border);
+      font-size: .9rem; color: var(--text-muted); }
+
+    /* Footer link */
+    .footer-link {
+      position: fixed; bottom: 12px; right: 12px; z-index: 1000;
+      background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: .4rem .8rem; font-size: .75rem; color: var(--text-muted); text-decoration: none;
+      transition: color .2s;
+    }
+    .footer-link:hover { color: var(--accent); }
+
+    @media (max-width: 600px) {
+      .header { flex-wrap: wrap; padding: .6rem 1rem; }
+      .header-stats { gap: 1rem; font-size: .75rem; }
+      .stat-value { font-size: .95rem; }
+    }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="header-brand">
+      <span class="header-logo">🐦</span>
+      <div>
+        <div class="header-title">BirdStation Network</div>
+        <div class="header-sub">Community bird detection stations</div>
+      </div>
+    </div>
+    <div class="header-stats">
+      <div><div class="stat-value" id="stat-stations">-</div><div class="stat-label">stations</div></div>
+      <div><div class="stat-value" id="stat-species">-</div><div class="stat-label">species detected</div></div>
+      <div><div class="stat-value" id="stat-detections">-</div><div class="stat-label">total detections</div></div>
+    </div>
+  </header>
+  <div id="map"></div>
+  <div class="loading" id="loading">Loading stations...</div>
+  <a class="footer-link" href="https://github.com/ernens/birdash" target="_blank" rel="noopener">Powered by BirdStation</a>
+
+<script>
+const SUPABASE_URL = 'https://ujuaoogpthdlyvyphgpc.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_aM2y1SE0B42oXD05wuGmJQ_FsqmzSHa';
+const headers = { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` };
+
+// Init map
+const map = L.map('map', {
+  zoomControl: true,
+  attributionControl: true,
+}).setView([48, 8], 5);
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
+  subdomains: 'abcd', maxZoom: 19,
+}).addTo(map);
+
+function isOnline(lastSeen) {
+  if (!lastSeen) return false;
+  return (Date.now() - new Date(lastSeen).getTime()) < 48 * 3600 * 1000;
+}
+
+function fmtDate(d) {
+  if (!d) return '—';
+  return new Date(d).toLocaleDateString('en', { day:'numeric', month:'short', year:'numeric' });
+}
+
+async function loadStations() {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/stations?select=*`, { headers });
+    const stations = await res.json();
+
+    // Load latest reports for each station
+    const reportRes = await fetch(`${SUPABASE_URL}/rest/v1/daily_reports?select=station_id,date,detections,species,top_species&order=date.desc&limit=100`, { headers });
+    const reports = await reportRes.json();
+    const latestReport = {};
+    reports.forEach(r => { if (!latestReport[r.station_id]) latestReport[r.station_id] = r; });
+
+    // Stats
+    const totalDet = stations.reduce((s, st) => s + (st.total_detections || 0), 0);
+    const totalSp = stations.reduce((s, st) => s + (st.total_species || 0), 0);
+    document.getElementById('stat-stations').textContent = stations.length;
+    document.getElementById('stat-species').textContent = totalSp.toLocaleString();
+    document.getElementById('stat-detections').textContent = totalDet.toLocaleString();
+
+    // Add markers
+    const bounds = [];
+    stations.forEach(st => {
+      if (!st.lat || !st.lon) return;
+      bounds.push([st.lat, st.lon]);
+      const online = isOnline(st.last_seen);
+      const report = latestReport[st.id];
+
+      const icon = L.divIcon({
+        className: '',
+        html: `<div class="station-marker ${online ? '' : 'offline'}">${st.name ? st.name.charAt(0).toUpperCase() : '?'}</div>`,
+        iconSize: [28, 28], iconAnchor: [14, 14],
+      });
+
+      let popupHtml = `
+        <div class="popup-name">${st.name || 'Unnamed station'}</div>
+        <div class="popup-country">
+          <span class="popup-online ${online ? 'on' : 'off'}"></span>
+          ${online ? 'Online' : 'Offline'} &middot; ${st.country || ''}
+        </div>
+        <div class="popup-stats">
+          <div><div class="popup-stat-val">${(st.total_detections || 0).toLocaleString()}</div><div style="color:var(--text-muted);font-size:.68rem;">detections</div></div>
+          <div><div class="popup-stat-val">${st.total_species || 0}</div><div style="color:var(--text-muted);font-size:.68rem;">species</div></div>
+        </div>
+        <div class="popup-hw">
+          ${st.hardware || ''}<br>
+          ${st.model ? st.model.replace(/_/g, ' ') : ''} &middot; ${st.version || ''}
+        </div>
+      `;
+
+      if (report && report.top_species && report.top_species.length) {
+        popupHtml += `<div class="popup-species">
+          <div class="popup-species-title">Top species (${report.date})</div>
+          ${report.top_species.slice(0, 5).map(sp =>
+            `<div class="popup-sp-row"><span class="popup-sp-name">${sp.sci || sp.name}</span><span class="popup-sp-count">${sp.count}</span></div>`
+          ).join('')}
+        </div>`;
+      }
+
+      popupHtml += `<div class="popup-seen">First seen: ${fmtDate(st.first_seen)} &middot; Last: ${fmtDate(st.last_seen)}</div>`;
+
+      L.marker([st.lat, st.lon], { icon }).addTo(map).bindPopup(popupHtml, { maxWidth: 280 });
+    });
+
+    if (bounds.length) map.fitBounds(bounds, { padding: [50, 50], maxZoom: 10 });
+  } catch (e) {
+    console.error('Failed to load stations:', e);
+    document.getElementById('loading').textContent = 'Failed to load stations';
+    return;
+  }
+  document.getElementById('loading').remove();
+}
+
+loadStations();
+</script>
+</body>
+</html>
